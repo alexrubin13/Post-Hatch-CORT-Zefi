@@ -1,0 +1,615 @@
+---
+title: "Periodic Cooling Analyses and Figures"
+author: "Alex Rubin"
+date: "6/9/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Working Directory & Load Packages
+```{r}
+#set working directory
+setwd("~/Documents/Auburn/Research/Periodic Cooling/Data/Final Data Sheets")
+#load packages
+library(lme4)
+library(lmerTest)
+library(plyr)
+library(reshape2)
+library(ggplot2)
+library(ggpubr)
+library(emmeans)
+library(tinytex)
+```
+#Survival and Embroyonic Mass Change
+```{r}
+#Load data for survival analysis; includes all eggs (n=208)
+survival <-read.csv("EmbSurv.csv")
+#Survival (Non-normal data with binomial distribution requires generalized linear model)
+surv<- glmer(Survival~Treatment+LayMass+(1|NestID), family = "binomial",na.action=na.exclude, data = survival)
+summary(surv)
+#Load data for mass change; data set  only uses individuals that survive to hatch (n=84;78 adults)
+embryo <-read.csv("Embryo.csv")
+#Repeated measures of mass change during incubation period
+change<-lmer(Mass~Treatment*Timepoint+Order+(1|NestID:EggID), data=embryo , na.action=na.exclude)
+summary(change)
+#Calculate F statistic
+anova(change)
+#Post-hoc
+conf.means<-emmeans(change, list(pairwise ~ Treatment|Timepoint), adjust = "tukey")
+conf.means
+```
+#Graph Embryonic Mass Change
+```{r}
+embryo$Timepoint <- factor(embryo$Timepoint, levels = c("Lay", "Eighty", "Hatch"))
+means <- ddply(embryo, .(Treatment, Timepoint), summarise, mean=mean(Mass, na.rm=TRUE))
+summarySE1 <- function(data=NULL, measurevar, groupvars=NULL, na.rm=TRUE,
+                       conf.interval=.95, .drop=TRUE) {
+  library(plyr)
+  # New version of length which can handle NA's: if na.rm==T, don't count them
+  length2 <- function (x, na.rm=TRUE) {
+    if (na.rm) sum(!is.na(x))
+    else       length(x)
+  }
+  # This does the summary. For each group's data frame, return a vector with
+  # N, mean, and sd
+  datac <- ddply(data, groupvars, .drop=.drop,
+                 .fun = function(xx, col) {
+                   c(N    = length2(xx[[col]], na.rm=na.rm),
+                     mean = mean   (xx[[col]], na.rm=na.rm),
+                     sd   = sd     (xx[[col]], na.rm=na.rm)
+                   )
+                 },
+                 measurevar
+  )
+  # Rename the "mean" column    
+  datac <- rename(datac, c("mean" = measurevar))
+  datac$se <- datac$sd / sqrt(datac$N)  # Calculate standard error of the mean
+  # Confidence interval multiplier for standard error
+  # Calculate t-statistic for confidence interval: 
+  # e.g., if conf.interval is .95, use .975 (above/below), and use df=N-1
+  ciMult <- qt(conf.interval/2 + .5, datac$N-1)
+  datac$ci <- datac$se * ciMult
+  return(datac)
+}
+pd <- position_dodge(0.02)
+plot1=summarySE1(embryo, measurevar = "Mass", groupvars= c("Treatment","Timepoint"))
+
+ ggplot(data = plot1, aes(x=Timepoint, y=Mass, group=Treatment, fill=Treatment, colour=Treatment)) +
+  geom_bar(colour="black", stat="identity", position = position_dodge()) +
+  labs(title="Change In Embryonic Mass During Incubation", x="Timepoint", y = "Mass (g)") +
+  scale_fill_grey() + theme_classic() +
+   scale_x_discrete(labels=c("Lay" = "Lay", "Eighty" = "80% Development",
+                            "Hatch" = "Hatch")) +
+   geom_errorbar(aes(ymin=Mass-se, ymax=Mass+se),position = position_dodge(), color="black") +
+    theme(plot.title = element_text(hjust = 0.5),
+        title=element_text(size=20),
+        axis.text=element_text(size=15),
+        axis.title=element_text(size=20, face="bold"))
+```
+
+
+
+#Incubation Duration
+```{r}
+#Load Data
+duration<- read.csv("Duration_Final.csv")
+head(duration)
+#Exclude any individuals that died
+dur_mod <- subset(duration, Survival=="1")
+#Time in days
+duration1 <- lm(DevelTime~Treatment+LayMass, data=dur_mod, na.action=na.exclude)
+summary(duration1)
+duration2 <- lm(DevelTime~relevel(Treatment, ref = "per")+LayMass, data=dur_mod, na.action=na.exclude)
+summary(duration2)
+#F-statistic
+anova(duration1)
+#Time in hours and degree day analyses #
+#Time in hours
+duration3 <- lm(Hours~Treatment+LayMass, data=dur_mod, na.action=na.exclude)
+summary(duration3)
+duration4 <- lm(Hours~relevel(Treatment, ref = "per") +LayMass, data=dur_mod, na.action=na.exclude)
+summary(duration4)
+#Degree days (physiological zero); not used
+duration5<-lm(DegreeDays~Treatment, data=dur_mod, na.action=na.exclude)
+summary(duration5)
+duration6 <- lm(DegreeDays~relevel(Treatment, ref = "per"), data=dur_mod, na.action=na.exclude)
+summary(duration6)
+#Degree days (incubation temperature by length)
+duration7<-lm(DegreeDays2~Treatment, data=dur_mod, na.action=na.exclude)
+summary(duration7)
+duration8 <- lm(DegreeDays2~relevel(Treatment, ref = "per"), data=dur_mod, na.action=na.exclude)
+summary(duration8)
+```
+#Graph Incubation Duration
+```{r }
+#Summarize means for each treatment
+means <- ddply(dur_mod, .(Treatment), summarise, mean=mean(DevelTime, na.rm=TRUE))
+summarySE1 <- function(data=NULL, measurevar, groupvars=NULL, na.rm=TRUE,
+                       conf.interval=.95, .drop=TRUE) {
+  library(plyr)
+  # New version of length which can handle NA's: if na.rm==T, don't count them
+  length2 <- function (x, na.rm=TRUE) {
+    if (na.rm) sum(!is.na(x))
+    else       length(x)
+  }
+  # This does the summary. For each group's data frame, return a vector with
+  # N, mean, and sd
+  datac <- ddply(data, groupvars, .drop=.drop,
+                 .fun = function(xx, col) {
+                   c(N    = length2(xx[[col]], na.rm=na.rm),
+                     mean = mean   (xx[[col]], na.rm=na.rm),
+                     sd   = sd     (xx[[col]], na.rm=na.rm)
+                   )
+                 },
+                 measurevar
+  )
+  # Rename the "mean" column    
+  datac <- rename(datac, c("mean" = measurevar))
+  datac$se <- datac$sd / sqrt(datac$N)  # Calculate standard error of the mean
+  # Confidence interval multiplier for standard error
+  # Calculate t-statistic for confidence interval: 
+  # e.g., if conf.interval is .95, use .975 (above/below), and use df=N-1
+  ciMult <- qt(conf.interval/2 + .5, datac$N-1)
+  datac$ci <- datac$se * ciMult
+  return(datac)
+}
+pd <- position_dodge(0.02)
+plot1=summarySE1(dur_mod, measurevar = "DevelTime", groupvars="Treatment")
+
+ggplot(plot1, aes(x=Treatment, y=DevelTime, col=Treatment, fill=Treatment, na.rm = TRUE)) + geom_bar(colour="black",stat="identity") +
+  labs(title="Effect of Incubation Treatment on Mean Development Time", x="Treatment", y = "Mean Time (days)") +
+  scale_fill_grey() +
+  theme_classic() + 
+  coord_cartesian(ylim=c(10,17))+
+  scale_x_discrete(labels=c("cont" = "Control", "low" = "Low",
+                            "per" = "Periodic")) +
+  geom_errorbar(aes(ymin=DevelTime-se, ymax=DevelTime+se), width=.1, color="black", position=position_dodge(.9)) +
+  theme(plot.title = element_text(hjust = 0.5),
+        title=element_text(size=20),
+        legend.position = "none",
+        axis.text=element_text(size=15),
+        axis.title=element_text(size=20, face="bold"))
+```
+#Post Hatch Growth Stats
+```{r}
+#Load post-hatch growth data
+morph <- read.csv("GrowthFinal.csv")
+#Look at data
+head(morph)
+str(morph)
+#Subset data for mass (M) and tarsus (T) analysis
+morph$DayM <-as.factor(morph$DayM)
+morph$DayT <-as.factor(morph$DayT)
+#Analysis of repeat measures of mass
+results1 <-lmer(Mass~Treatment*DayM+Sex+(1|Rearing:AdultID), data=morph, na.action=na.exclude)
+summary(results1)
+#F statistics
+anova(results1)
+#Post-hoc comparison
+conf.means<-emmeans(results1, list(pairwise ~ Treatment|DayM), adjust = "tukey")
+conf.means
+plot(conf.means, by = "Treatment", comparisons = TRUE, horizontal = FALSE, color="darkgreen" )
+#Analysis for repeated measures of tarsus
+results2 <-lmer(Tarsus~Treatment*DayT+Sex+(1|Rearing:AdultID), data=morph, na.action=na.exclude)
+summary(results2)
+#Post-hoc comparison
+conf.means<-emmeans(results2, list(pairwise ~ Treatment|DayT), adjust = "tukey")
+conf.means
+plot(conf.means, by = "Treatment", comparisons = TRUE, horizontal = FALSE, color="darkgreen" )
+```
+#Graph of Post-Hatch Growth
+```{r}
+#Graph for mean change in body mass
+head(morph)
+#Body Mass
+means <- ddply(morph, .(Treatment, DayM), summarise, mean=mean(Mass, na.rm=TRUE))
+summarySE1 <- function(data=NULL, measurevar, groupvars=NULL, na.rm=TRUE,
+                       conf.interval=.95, .drop=TRUE) {
+  library(plyr)
+  # New version of length which can handle NA's: if na.rm==T, don't count them
+  length2 <- function (x, na.rm=TRUE) {
+    if (na.rm) sum(!is.na(x))
+    else       length(x)
+  }
+  # This does the summary. For each group's data frame, return a vector with
+  # N, mean, and sd
+  datac <- ddply(data, groupvars, .drop=.drop,
+                 .fun = function(xx, col) {
+                   c(N    = length2(xx[[col]], na.rm=na.rm),
+                     mean = mean   (xx[[col]], na.rm=na.rm),
+                     sd   = sd     (xx[[col]], na.rm=na.rm)
+                   )
+                 },
+                 measurevar
+  )
+  # Rename the "mean" column    
+  datac <- rename(datac, c("mean" = measurevar))
+  datac$se <- datac$sd / sqrt(datac$N)  # Calculate standard error of the mean
+  # Confidence interval multiplier for standard error
+  # Calculate t-statistic for confidence interval: 
+  # e.g., if conf.interval is .95, use .975 (above/below), and use df=N-1
+  ciMult <- qt(conf.interval/2 + .5, datac$N-1)
+  datac$ci <- datac$se * ciMult
+  return(datac)
+}
+pd <- position_dodge(0.02)
+mass1=summarySE1(morph, measurevar = "Mass", groupvars=c("DayM", "Treatment"))
+mfin<-ggplot(mass1, aes(x=DayM, y=Mass, group=Treatment, color=Treatment)) +
+  labs(title=expression(M["b"])) +
+  geom_line(aes(color=Treatment), size=1.5)  +  geom_point(aes(shape = Treatment)) +
+  geom_errorbar(aes(ymin=Mass-se, ymax=Mass+se), width=.1) +
+  scale_colour_grey() + theme_classic() +
+  ylab("Body Mass (g)") +
+  scale_x_discrete(breaks=c(0, 2, 5, 10, 16,30,40,60,90)) +
+  theme(plot.title = element_text(hjust = 0.5),
+        title=element_text(size=20),
+        legend.title=element_text(size=15,face="bold"),
+        legend.text = element_text(size=20),
+        axis.text=element_text(size=15),
+        axis.title=element_text(size=20, face="bold"),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size=20, face="bold"))
+#Graph for mean change in tarsus
+means <- ddply(morph, .(Treatment, DayT), summarise, mean=mean(Tarsus, na.rm=TRUE))
+summarySE1 <- function(data=NULL, measurevar, groupvars=NULL, na.rm=TRUE,
+                       conf.interval=.95, .drop=TRUE) {
+  library(plyr)
+  # New version of length which can handle NA's: if na.rm==T, don't count them
+  length2 <- function (x, na.rm=TRUE) {
+    if (na.rm) sum(!is.na(x))
+    else       length(x)
+  }
+  # This does the summary. For each group's data frame, return a vector with
+  # N, mean, and sd
+  datac <- ddply(data, groupvars, .drop=.drop,
+                 .fun = function(xx, col) {
+                   c(N    = length2(xx[[col]], na.rm=na.rm),
+                     mean = mean   (xx[[col]], na.rm=na.rm),
+                     sd   = sd     (xx[[col]], na.rm=na.rm)
+                   )
+                 },
+                 measurevar
+  )
+  # Rename the "mean" column    
+  datac <- rename(datac, c("mean" = measurevar))
+  datac$se <- datac$sd / sqrt(datac$N)  # Calculate standard error of the mean
+  # Confidence interval multiplier for standard error
+  # Calculate t-statistic for confidence interval: 
+  # e.g., if conf.interval is .95, use .975 (above/below), and use df=N-1
+  ciMult <- qt(conf.interval/2 + .5, datac$N-1)
+  datac$ci <- datac$se * ciMult
+  return(datac)
+}
+pd <- position_dodge(0.02)
+tarsus1=summarySE1(morph, measurevar = "Tarsus", groupvars=c("DayT", "Treatment"))
+tarsus2 <-na.exclude(tarsus1)
+tfin<-ggplot(tarsus2, aes(x=DayT, y=Tarsus, group=Treatment)) +
+  geom_line(aes(color=Treatment), size=1.5)  +  geom_point(aes(shape = Treatment)) +
+  scale_x_discrete(breaks=c(0, 2, 5, 10,30,60)) +
+  geom_errorbar(aes(ymin=Tarsus-se, ymax=Tarsus+se), width=.1) +
+  ylab("Tarsus Length (mm)") +
+  scale_colour_grey() + theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5),
+        title=element_text(size=20),
+        legend.title=element_text(size=15,face="bold"),
+        legend.text = element_text(size=20),
+        axis.text=element_text(size=15),
+        axis.title=element_text(size=20, face="bold"),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size=20, face="bold"))
+##Graphs for mean % growth##
+###Data are in separate sheets in order to properly scale x-axis for tarsus graph##
+percentM <- read.csv("PercentGrowth.csv")
+head(percentM)
+percentT <- read.csv("PercentT.csv")
+head(percentT)
+#Mass
+mper<- ggplot(percentM, aes(x=as.factor(DayM), y=PercentM, group=Treatment)) +
+  geom_line(aes(color=Treatment), size=1.5) +  geom_point(aes(shape = Treatment)) +
+  scale_colour_grey()+ theme_classic() +
+  scale_x_discrete(breaks=c(0, 2, 5, 10, 16,30,40,60,90)) +
+  scale_y_continuous(limits=c(80,105))+
+  ylab("Mean % Growth") + xlab("Days Post Hatch") +
+  theme(plot.title = element_text(hjust = 0.5),
+        title=element_text(size=20),
+        legend.title=element_text(size=15,face="bold"),
+        legend.text = element_text(size=20),
+        axis.text=element_text(size=15),
+        axis.title=element_text(size=20, face="bold"))
+#Tarsus
+tper<-ggplot(percentT, aes(x=as.factor(DayT), y=PercentT, group=Treatment)) +
+  geom_line(aes(color=Treatment), size=1.5) + geom_point(aes(shape = Treatment))+
+  scale_colour_grey() + theme_classic() +
+   xlab("Days Post Hatch") +
+  scale_x_discrete(breaks=c(0, 2, 5, 10,30,60))+
+  scale_y_continuous(limits=c(80,105)) +
+  theme(plot.title = element_text(hjust = 0.5),
+        title=element_text(size=20),
+        legend.title=element_text(size=15,face="bold"),
+        legend.text = element_text(size=20),
+        axis.text=element_text(size=15),
+        axis.title=element_text(size=20, face="bold"),
+        axis.title.y = element_blank())
+#Make into grid
+fig_morph<-ggarrange(mfin,tfin,mper,tper, labels=c("A", "C", "B", "D"), ncol= 2, nrow=2, common.legend = TRUE, align = "hv")
+fig_morph2<-annotate_figure(fig_morph, top=text_grob("Effect of Incubation Temperature on Post-Hatch Growth", size = 20))
+fig_morph2
+```
+#CORT & CBG
+```{r}
+datum <- read.csv("CORTFinal.csv")
+head(datum)
+str(datum)
+#Look at number of individuals
+locales <- count(datum$AdultID)
+locales
+#Make day into factor
+datum$Day <-as.factor(datum$Day)
+#Subset by metric of CORT
+base<-subset(datum, Timepoint=="Baseline")
+stress<-subset(datum, Timepoint=="Stress")
+######Preliminary model builing procedures; not included in paper##########
+#Model building procedures (not included in manuscript)
+model1 <-lmer(CORT~Treatment*Day+Timepoint+Sex+Mass+(1|AdultID), data=datum, na.action=na.exclude)
+model2 <-lmer(CORT~Treatment*Day+Timepoint+Sex+Mass+(1|Rearing:AdultID), data=datum, na.action=na.exclude)
+model3 <-lmer(CORT~Treatment*Day+Timepoint+Sex+Mass+(1|Rearing:AdultID)+(1|Genetic), data=datum, na.action=na.exclude)
+model4 <-lmer(CORT~Treatment*Day+Timepoint+Sex+Mass+(1|AdultID)+(1|Genetic), data=datum, na.action=na.exclude)
+model5 <-lmer(CORT~Treatment*Day+Timepoint+Sex+Mass+(1|AdultID)+(1|Rearing), data=datum, na.action=na.exclude)
+model6<-lmer(CORT~Treatment*Day+Timepoint+Sex+Mass+(1|Genetic:AdultID), data=datum, na.action=na.exclude)
+model7<-lmer(CORT~Treatment*Day+Timepoint+Sex+Mass+(1|Rearing:AdultID)+(1|Plate), data=datum, na.action=na.exclude)
+model8<-lmer(CORT~Treatment*Day+Timepoint+Sex+Mass+(1|AdultID)+(1|Plate), data=datum, na.action=na.exclude)
+#F-drop test; change model number to compare different random effect structures
+anova(model1,model8)
+#No differences based off AIC scores so went with (1|Rearing:AdultID) as it was in line with a priori expectations
+#Repeated measures for all days and timepoints (not included in results; just for preliminary investigation of data before subsetting by CORT metric)
+results <-lmer(CORT~Treatment*Day+Timepoint+Sex+(1|Rearing:AdultID), data=datum, na.action=na.exclude)
+summary(results)
+############Reported Analyses for CORT#########
+###Repeated measures of just baseline###
+results1 <-lmer(CORT~Treatment*Day+Sex+(1|Rearing:AdultID), data=base, na.action=na.exclude)
+summary(results1)
+#Between treatment post-hoc comparison
+conf.means<-emmeans(results1, list(pairwise ~ Treatment|Day), adjust = "tukey")
+conf.means
+plot(conf.means, by = "Treatment", comparisons = TRUE, horizontal = FALSE, color="darkgreen" )
+#Within treatment post-hoc comparison
+conf.means<-emmeans(results1, list(pairwise ~ Day|Treatment), adjust = "tukey")
+conf.means
+plot(conf.means, by = "Treatment", comparisons = TRUE, horizontal = FALSE, color="darkgreen" )
+###Repeated measures of just stress###
+results2 <-lmer(CORT~Treatment*Day+Sex+(1|Rearing:AdultID), data=stress, na.action=na.exclude)
+summary(results2)
+#Between treatment post-hoc comparison
+conf.means<-emmeans(results2, list(pairwise ~ Treatment|Day), adjust = "tukey")
+conf.means
+plot(conf.means, by = "Treatment", comparisons = TRUE, horizontal = FALSE, color="darkgreen" )
+#Within treatment post-hoc comparison
+conf.means<-emmeans(results2, list(pairwise ~ Day|Treatment), adjust = "tukey")
+conf.means
+plot(conf.means, by = "Treatment", comparisons = TRUE, horizontal = FALSE, color="darkgreen" )
+#Integrated stress response analyses
+head(datum)
+#Data frame is organized so that "Integral" has two values per individual per time point; therefore use either dataframe "base" or "stress" but not "datum"
+#Repeated Measures
+results_int1<-lmer(Integral~Treatment*Day+Sex+(1|Rearing:AdultID),data=base, na.action = na.exclude)
+summary(results_int1)
+5##Between treatment post-hoc comparisonn
+conf.means<-emmeans(results_int1, list(pairwise ~ Treatment|Day), adjust = "tukey")
+conf.means
+plot(conf.means, by = "Treatment", comparisons = TRUE, horizontal = FALSE, color="darkgreen" )
+#Within treatment post-hoc comparison
+conf.means<-emmeans(results_int1, list(pairwise ~ Day|Treatment), adjust = "tukey")
+conf.means
+plot(conf.means, by = "Treatment", comparisons = TRUE, horizontal = FALSE, color="darkgreen" )
+```
+#Graphs of CORT
+```{r}
+#These figures are not included in the manuscript; they are just data visualization exercises
+#All
+#Baseline
+ggplot(data = base, aes(x=Day, y=CORT, colour=Treatment)) + 
+  geom_boxplot() +
+  scale_colour_grey() + theme_classic() +
+  labs(title="Effect of Incubation Treatment on Baseline CORT", x="Day", y = "CORT (ng/mL)") +
+  theme(plot.title = element_text(hjust = 0.5),
+        title=element_text(size=11),
+        legend.title=element_text(size=15,face="bold"),
+        legend.text = element_text(size=13),
+        axis.text=element_text(size=13),
+        axis.title=element_text(size=15, face="bold"))
+ggplot(data = base, aes(x=Day, y=CORT,group=Treatment, colour=Treatment)) + 
+  geom_smooth(method = lm, formula = y ~ x, se = TRUE) +
+  scale_colour_grey() + theme_classic() +
+  labs(title="Effect of Incubation Treatment on Baseline CORT", x="Day", y = "CORT (ng/mL)") +
+  theme(plot.title = element_text(hjust = 0.5),
+        title=element_text(size=11),
+        legend.title=element_text(size=15,face="bold"),
+        legend.text = element_text(size=13),
+        axis.text=element_text(size=13),
+        axis.title=element_text(size=15, face="bold"))
+#Repeated Measures
+means <- ddply(base, .(Day), summarise, mean=mean(CORT, na.rm=TRUE))
+summarySE1 <- function(data=NULL, measurevar, groupvars=NULL, na.rm=TRUE,
+                       conf.interval=.95, .drop=TRUE) {
+  library(plyr)
+  # New version of length which can handle NA's: if na.rm==T, don't count them
+  length2 <- function (x, na.rm=TRUE) {
+    if (na.rm) sum(!is.na(x))
+    else       length(x)
+  }
+  # This does the summary. For each group's data frame, return a vector with
+  # N, mean, and sd
+  datac <- ddply(data, groupvars, .drop=.drop,
+                 .fun = function(xx, col) {
+                   c(N    = length2(xx[[col]], na.rm=na.rm),
+                     mean = mean   (xx[[col]], na.rm=na.rm),
+                     sd   = sd     (xx[[col]], na.rm=na.rm)
+                   )
+                 },
+                 measurevar
+  )
+  # Rename the "mean" column    
+  datac <- rename(datac, c("mean" = measurevar))
+  datac$se <- datac$sd / sqrt(datac$N)  # Calculate standard error of the mean
+  # Confidence interval multiplier for standard error
+  # Calculate t-statistic for confidence interval: 
+  # e.g., if conf.interval is .95, use .975 (above/below), and use df=N-1
+  ciMult <- qt(conf.interval/2 + .5, datac$N-1)
+  datac$ci <- datac$se * ciMult
+  return(datac)
+}
+pd <- position_dodge(0.02)
+plot_base=summarySE1(base, measurevar = "CORT", groupvars=c("Day", "Treatment"))
+ggplot(data = plot_base, aes(x=Day, y=CORT, group=Treatment,fill=Treatment, colour=Treatment)) +
+  geom_line(size=1.5) +
+  geom_point() + geom_errorbar(aes(ymin=CORT-se, ymax=CORT+se), width=.1, 
+                               position=position_dodge(0.05)) +
+  labs(title="Baseline CORT Levels", x="Day", y = "CORT (ng/mL)") +
+  scale_colour_grey() + theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5),
+        title=element_text(size=20),
+        legend.title=element_text(size=15,face="bold"),
+        legend.text = element_text(size=13),
+        axis.text=element_text(size=15),
+        axis.title=element_text(size=20, face="bold"))
+#Stress
+ggplot(data = stress, aes(x=Day, y=CORT, colour=Treatment)) + 
+  geom_boxplot() +
+  scale_colour_grey() + theme_classic() +
+  labs(title="Effect of Incubation Treatment on Stress Induced CORT", x="Day", y = "CORT (ng/mL)") +
+  theme(plot.title = element_text(hjust = 0.5),
+        title=element_text(size=11),
+        legend.title=element_text(size=15,face="bold"),
+        legend.text = element_text(size=13),
+        axis.text=element_text(size=13),
+        axis.title=element_text(size=15, face="bold"))
+#Repeated Measures
+means <- ddply(stress, .(Day), summarise, mean=mean(CORT, na.rm=TRUE))
+summarySE1 <- function(data=NULL, measurevar, groupvars=NULL, na.rm=TRUE,
+                       conf.interval=.95, .drop=TRUE) {
+  library(plyr)
+  # New version of length which can handle NA's: if na.rm==T, don't count them
+  length2 <- function (x, na.rm=TRUE) {
+    if (na.rm) sum(!is.na(x))
+    else       length(x)
+  }
+  # This does the summary. For each group's data frame, return a vector with
+  # N, mean, and sd
+  datac <- ddply(data, groupvars, .drop=.drop,
+                 .fun = function(xx, col) {
+                   c(N    = length2(xx[[col]], na.rm=na.rm),
+                     mean = mean   (xx[[col]], na.rm=na.rm),
+                     sd   = sd     (xx[[col]], na.rm=na.rm)
+                   )
+                 },
+                 measurevar
+  )
+  # Rename the "mean" column    
+  datac <- rename(datac, c("mean" = measurevar))
+  datac$se <- datac$sd / sqrt(datac$N)  # Calculate standard error of the mean
+  # Confidence interval multiplier for standard error
+  # Calculate t-statistic for confidence interval: 
+  # e.g., if conf.interval is .95, use .975 (above/below), and use df=N-1
+  ciMult <- qt(conf.interval/2 + .5, datac$N-1)
+  datac$ci <- datac$se * ciMult
+  return(datac)
+}
+pd <- position_dodge(0.02)
+plot_stress=summarySE1(stress, measurevar = "CORT", groupvars=c("Day", "Treatment"))
+ggplot(data = plot_stress, aes(x=Day, y=CORT, group=Treatment,fill=Treatment, colour=Treatment)) +
+  geom_line(size=1.5) +
+  geom_point() + geom_errorbar(aes(ymin=CORT-se, ymax=CORT+se), width=.1, 
+                               position=position_dodge(0.05)) +
+  labs(title="Stress Induced CORT Levels", x="Day", y = "CORT (ng/mL)") +
+  scale_colour_grey()  + theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5),
+        title=element_text(size=20),
+        legend.title=element_text(size=15,face="bold"),
+        legend.text = element_text(size=13),
+        axis.text=element_text(size=15),
+        axis.title=element_text(size=20, face="bold"))
+#Integrated
+#All Days
+ggplot(data = stress, aes(x=Day, y=Integral, colour=Treatment)) + 
+  geom_boxplot() +
+  scale_colour_grey() + theme_classic() +
+  labs(title="Effect of Incubation Treatment on Integrated CORT Response", x="Day", y = "CORT (ng/mL*min)") +
+  theme(plot.title = element_text(hjust = 0.5),
+        title=element_text(size=11),
+        legend.title=element_text(size=15,face="bold"),
+        legend.text = element_text(size=13),
+        axis.text=element_text(size=13),
+        axis.title=element_text(size=15, face="bold"))
+#Integrated
+means <- ddply(stress, .(Treatment, Day, Sex), summarise, mean=mean(Integral, na.rm=TRUE))
+summarySE1 <- function(data=NULL, measurevar, groupvars=NULL, na.rm=TRUE,
+                       conf.interval=.95, .drop=TRUE) {
+  library(plyr)
+  # New version of length which can handle NA's: if na.rm==T, don't count them
+  length2 <- function (x, na.rm=TRUE) {
+    if (na.rm) sum(!is.na(x))
+    else       length(x)
+  }
+  # This does the summary. For each group's data frame, return a vector with
+  # N, mean, and sd
+  datac <- ddply(data, groupvars, .drop=.drop,
+                 .fun = function(xx, col) {
+                   c(N    = length2(xx[[col]], na.rm=na.rm),
+                     mean = mean   (xx[[col]], na.rm=na.rm),
+                     sd   = sd     (xx[[col]], na.rm=na.rm)
+                   )
+                 },
+                 measurevar
+  )
+  # Rename the "mean" column    
+  datac <- rename(datac, c("mean" = measurevar))
+  datac$se <- datac$sd / sqrt(datac$N)  # Calculate standard error of the mean
+  # Confidence interval multiplier for standard error
+  # Calculate t-statistic for confidence interval: 
+  # e.g., if conf.interval is .95, use .975 (above/below), and use df=N-1
+  ciMult <- qt(conf.interval/2 + .5, datac$N-1)
+  datac$ci <- datac$se * ciMult
+  return(datac)
+}
+pd <- position_dodge(0.02)
+plot_int=summarySE1(stress, measurevar = "Integral", groupvars=c("Day","Treatment"))
+ggplot(data = plot_int, aes(x=Day, y=Integral, group=Treatment,fill=Treatment, colour=Treatment)) +
+  geom_line(size=1.5) +
+  geom_point() +
+  geom_errorbar(aes(ymin=Integral-se, ymax=Integral+se), width=.1, 
+                position=position_dodge(0.05)) +
+  labs(title="Integrated CORT Response", x="Day", y = "CORT (ng/mL*min)") +
+  scale_colour_grey()  + theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5),
+        title=element_text(size=20),
+        legend.title=element_text(size=15,face="bold"),
+        legend.text = element_text(size=13),
+        axis.text=element_text(size=15),
+        axis.title=element_text(size=20, face="bold"))
+```
+#CBG Analyses
+```{r}
+#import data
+CBG<-read.csv("CORTFinal.csv")
+#subset data for day 16 and 90
+CBG2<-subset(CBG, Day=="16")
+CBG3<-subset(CBG, Day=="90")
+#free hormone analysis at day 16
+free<-lmer(Free_Hormone ~ Treatment + Timepoint + Mass + (1 | AdultID), data=CBG2, na.action=na.exclude)
+summary(free)
+#cbg concentration at day 16
+conc<-lmer(CBG_Conc ~ Treatment + Timepoint + Mass + Free_Hormone + (1 |AdultID), data=CBG2, na.action=na.exclude)
+summary(conc)
+#free hormone analysis at day 90
+free2<-lm(Free_Hormone ~ Treatment + Mass, data = CBG3, na.action = na.exclude)
+summary(free2)
+#cbg concentration at day 90
+conc2<-lm(CBG_Conc ~ Treatment + Mass + Free_Hormone, data = CBG3, na.action = na.exclude)
+summary(conc2)
+```
+
